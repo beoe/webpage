@@ -59,11 +59,21 @@ build:
       echo "Registry: $REGISTRY"
       echo "Testing registry connectivity..."
       curl -I "https://${REGISTRY}/v2/" 2>&1 | head -5 || echo "Warning: Could not reach registry API"
+      
+      # Configure Docker for chunked uploads (Docker Registry v2 uses chunked uploads)
+      # This helps with large images through proxies like Traefik
+      export DOCKER_BUILDKIT=0  # Disable BuildKit for compatibility
+      
+      # Try to use Docker's experimental features for better chunked upload handling
+      # Set registry-specific timeout and retry settings
       MAX_RETRIES=3
       RETRY_COUNT=0
       while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
         echo "Push attempt $((RETRY_COUNT + 1))/$MAX_RETRIES"
         START_TIME=$(date +%s)
+        
+        # Use docker push with explicit progress output to see where it fails
+        # The --quiet flag is NOT used to see progress and catch errors early
         if docker push $LIGHTHOUSE 2>&1 | tee /tmp/push.log; then
           END_TIME=$(date +%s)
           DURATION=$((END_TIME - START_TIME))
@@ -71,40 +81,115 @@ build:
           break
         else
           RETRY_COUNT=$((RETRY_COUNT + 1))
+          PUSH_ERROR=$(cat /tmp/push.log 2>/dev/null || echo "")
+          
           # Check for specific error patterns
-          if grep -q "413\|Request Entity Too Large\|client_max_body_size" /tmp/push.log 2>/dev/null; then
+          if echo "$PUSH_ERROR" | grep -q "413\|Request Entity Too Large\|client_max_body_size"; then
             echo "✗ ERROR: 413 Request Entity Too Large detected!"
             echo "This indicates a proxy (Traefik/nginx) body size limit."
-            echo "Check Traefik configuration for 'clientMaxBodySize' or 'maxRequestBodyBytes'"
-          elif grep -q "504\|Gateway Timeout\|timeout" /tmp/push.log 2>/dev/null; then
+            echo ""
+            echo "Traefik Configuration Required:"
+            echo "1. Set maxRequestBodyBytes in Traefik middleware (>= 2GB):"
+            echo "   traefik.http.middlewares.registry-body.buffering.maxRequestBodyBytes=2147483648"
+            echo "2. Apply middleware to registry router"
+            echo ""
+            echo "OR in Traefik static config (traefik.yml):"
+            echo "entryPoints:"
+            echo "  websecure:"
+            echo "    transport:"
+            echo "      respondingTimeouts:"
+            echo "        readTimeout: 30m"
+            echo "        writeTimeout: 30m"
+            echo "        idleTimeout: 5m"
+          elif echo "$PUSH_ERROR" | grep -q "504\|Gateway Timeout\|timeout\|context canceled"; then
             echo "✗ ERROR: Timeout detected!"
             echo "Upload may be taking too long. Check proxy timeout settings."
-          elif grep -q "connection reset\|broken pipe" /tmp/push.log 2>/dev/null; then
+            echo ""
+            echo "Traefik Configuration Required:"
+            echo "In traefik.yml (static config), set entrypoint timeouts:"
+            echo "entryPoints:"
+            echo "  websecure:"
+            echo "    address: \":443\""
+            echo "    transport:"
+            echo "      respondingTimeouts:"
+            echo "        readTimeout: 30m      # Critical for large uploads"
+            echo "        writeTimeout: 30m"
+            echo "        idleTimeout: 5m"
+            echo ""
+            echo "Also ensure Docker client timeout is set (already set to ${DOCKER_CLIENT_TIMEOUT}s)"
+          elif echo "$PUSH_ERROR" | grep -q "connection reset\|broken pipe\|EOF\|unexpected EOF"; then
             echo "✗ ERROR: Connection reset detected!"
             echo "Network or proxy buffer issue. Check Traefik buffer settings."
+            echo ""
+            echo "Traefik Configuration Required:"
+            echo "1. Increase buffer sizes in middleware:"
+            echo "   maxRequestBodyBytes: 2147483648  # 2GB"
+            echo "   maxResponseBodyBytes: 2147483648  # 2GB"
+            echo "   memRequestBodyBytes: 10485760     # 10MB"
+            echo "2. Check Traefik entrypoint timeouts (see timeout error above)"
+            echo "3. Consider disabling buffering for registry (if Traefik supports it)"
+          elif echo "$PUSH_ERROR" | grep -q "unauthorized\|authentication required"; then
+            echo "✗ ERROR: Authentication issue detected!"
+            echo "Token may have expired. Re-authenticating..."
+          else
+            echo "✗ ERROR: Unknown error during push"
+            echo "Error details:"
+            echo "$PUSH_ERROR" | tail -20
           fi
+          
           if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
             WAIT_TIME=$((RETRY_COUNT * 10))
+            echo ""
             echo "⚠ Push failed, retrying in ${WAIT_TIME}s..."
             echo "Last error output:"
             tail -30 /tmp/push.log || true
             sleep $WAIT_TIME
             # Re-authenticate in case token expired
+            echo "Re-authenticating with registry..."
             docker login -u gitlab-ci-token -p $CI_JOB_TOKEN $REGISTRY
           else
+            echo ""
             echo "✗ ERROR: Failed to push lighthouse image after $MAX_RETRIES attempts"
+            echo ""
             echo "Image details:"
-            docker images | grep lighthouse || true
+            docker images $LIGHTHOUSE --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}" || docker images | grep lighthouse || true
+            echo ""
             echo "Full error output:"
             cat /tmp/push.log || true
             echo ""
-            echo "Troubleshooting tips:"
-            echo "1. Check Traefik 'clientMaxBodySize' setting (should be >= 2GB)"
-            echo "2. Check Traefik entrypoint timeouts (readTimeout/writeTimeout should be 30m+)"
-            echo "3. Check for 'context canceled' errors in Traefik logs - indicates timeout issue"
-            echo "4. Check GitLab registry 'max_upload_size' setting"
-            echo "5. Review registry logs: sudo gitlab-ctl tail registry"
-            echo "6. Review Traefik logs: docker logs traefik | grep registry"
+            echo "=========================================="
+            echo "Troubleshooting Checklist:"
+            echo "=========================================="
+            echo ""
+            echo "1. Traefik Middleware Configuration (Docker labels or dynamic config):"
+            echo "   - maxRequestBodyBytes: 2147483648 (2GB) or larger"
+            echo "   - maxResponseBodyBytes: 2147483648 (2GB) or larger"
+            echo "   - memRequestBodyBytes: 10485760 (10MB)"
+            echo ""
+            echo "2. Traefik Entrypoint Timeouts (static config traefik.yml):"
+            echo "   entryPoints:"
+            echo "     websecure:"
+            echo "       transport:"
+            echo "         respondingTimeouts:"
+            echo "           readTimeout: 30m"
+            echo "           writeTimeout: 30m"
+            echo "           idleTimeout: 5m"
+            echo ""
+            echo "3. GitLab Registry Configuration:"
+            echo "   - Check registry['max_upload_size'] in /etc/gitlab/gitlab.rb"
+            echo "   - Should be >= 10737418240 (10GB)"
+            echo ""
+            echo "4. Check Logs:"
+            echo "   - Traefik: docker logs traefik | grep -i 'registry\|413\|timeout\|body'"
+            echo "   - Registry: sudo gitlab-ctl tail registry | grep -i 'error\|413\|timeout'"
+            echo ""
+            echo "5. Test Registry Directly:"
+            echo "   curl -I https://${REGISTRY}/v2/"
+            echo ""
+            echo "6. Note: Docker Registry v2 uses chunked uploads."
+            echo "   Traefik must NOT buffer the entire request body."
+            echo "   Consider using 'passHostHeader: true' and proper timeout settings."
+            echo ""
             exit 1
           fi
         fi

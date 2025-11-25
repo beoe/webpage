@@ -1,0 +1,141 @@
+# Traefik Configuration for GitLab Registry with Large Docker Images
+# 
+# This file shows the complete configuration needed for Traefik to handle
+# large Docker image uploads (e.g., lighthouse image ~1.2GB+)
+#
+# IMPORTANT: Docker Registry v2 uses chunked uploads. Traefik must be configured
+# to handle these properly without buffering the entire request body.
+
+# ============================================================================
+# OPTION 1: Static Configuration (traefik.yml)
+# ============================================================================
+# Add this to your Traefik static configuration file (usually traefik.yml)
+
+entryPoints:
+  websecure:
+    address: ":443"
+    # CRITICAL: These timeouts must be set for large uploads
+    transport:
+      respondingTimeouts:
+        readTimeout: 30m      # Allow 30+ minutes for large uploads
+        writeTimeout: 30m     # Allow time for responses
+        idleTimeout: 5m       # Keep connection alive during slow uploads
+
+# ============================================================================
+# OPTION 2: Dynamic Configuration (docker-compose labels)
+# ============================================================================
+# If using Docker Compose with Traefik labels, add these to your GitLab registry service:
+
+services:
+  gitlab-registry:
+    # ... your existing registry configuration ...
+    labels:
+      # Enable Traefik
+      - "traefik.enable=true"
+      
+      # Router configuration
+      - "traefik.http.routers.registry.rule=Host(`registry.dockerbuch.info`)"
+      - "traefik.http.routers.registry.entrypoints=websecure"
+      - "traefik.http.routers.registry.tls.certresolver=letsencrypt"
+      
+      # CRITICAL: Middleware for large uploads
+      # These settings allow Traefik to handle large request bodies
+      - "traefik.http.middlewares.registry-body.buffering.maxRequestBodyBytes=2147483648"  # 2GB
+      - "traefik.http.middlewares.registry-body.buffering.maxResponseBodyBytes=2147483648"  # 2GB
+      - "traefik.http.middlewares.registry-body.buffering.memRequestBodyBytes=10485760"     # 10MB memory buffer
+      
+      # Apply middleware to registry router
+      - "traefik.http.routers.registry.middlewares=registry-body"
+      
+      # Service configuration
+      - "traefik.http.services.registry.loadbalancer.server.port=5000"
+      - "traefik.http.services.registry.loadbalancer.passHostHeader=true"
+      
+      # Optional: Health check
+      - "traefik.http.services.registry.loadbalancer.healthCheck.interval=30s"
+      - "traefik.http.services.registry.loadbalancer.healthCheck.timeout=10s"
+
+# ============================================================================
+# OPTION 3: Dynamic Configuration File
+# ============================================================================
+# If using Traefik dynamic configuration files (e.g., traefik/dynamic/registry.yml)
+
+http:
+  middlewares:
+    registry-body:
+      buffering:
+        maxRequestBodyBytes: 2147483648   # 2GB - allows large image uploads
+        maxResponseBodyBytes: 2147483648 # 2GB - allows large responses
+        memRequestBodyBytes: 10485760     # 10MB - memory buffer size
+        # Note: For chunked uploads, Traefik should stream, not buffer everything
+        # The memRequestBodyBytes controls how much is buffered in memory
+
+  routers:
+    registry:
+      rule: "Host(`registry.dockerbuch.info`)"
+      entryPoints:
+        - websecure
+      middlewares:
+        - registry-body
+      service: registry
+      tls:
+        certResolver: letsencrypt
+
+  services:
+    registry:
+      loadBalancer:
+        servers:
+          - url: "http://gitlab-registry:5000"
+        passHostHeader: true
+        # Optional: Configure response forwarding for better streaming
+        responseForwarding:
+          flushInterval: 100ms
+
+# ============================================================================
+# VERIFICATION
+# ============================================================================
+# After applying configuration, verify with:
+#
+# 1. Check Traefik configuration is loaded:
+#    docker exec traefik cat /etc/traefik/traefik.yml | grep -A 10 "websecure"
+#
+# 2. Check Traefik logs for registry routes:
+#    docker logs traefik 2>&1 | grep -i registry
+#
+# 3. Test registry connectivity:
+#    curl -I https://registry.dockerbuch.info/v2/
+#
+# 4. Monitor during push:
+#    docker logs traefik -f | grep -i "registry\|413\|timeout"
+#
+# ============================================================================
+# COMMON ISSUES
+# ============================================================================
+#
+# Issue: "413 Request Entity Too Large"
+# Fix: Increase maxRequestBodyBytes in middleware (see above)
+#
+# Issue: "504 Gateway Timeout" or "context canceled" in Traefik logs
+# Fix: Increase entrypoint timeouts (readTimeout/writeTimeout to 30m+)
+#
+# Issue: Connection reset during upload
+# Fix: Check both buffer sizes AND entrypoint timeouts
+#
+# Issue: Upload works but is very slow
+# Fix: Check network between Traefik and GitLab registry, increase idleTimeout
+#
+# ============================================================================
+# NOTES
+# ============================================================================
+#
+# - Docker Registry v2 uses chunked uploads (multipart/form-data)
+# - Traefik should stream chunks, not buffer entire request
+# - The memRequestBodyBytes setting controls memory usage during buffering
+# - Entrypoint timeouts are CRITICAL - they must be longer than upload time
+# - Default Traefik timeouts are often too short (seconds, not minutes)
+#
+# For a 1.2GB image upload:
+# - Upload time: ~5-15 minutes (depending on network speed)
+# - Required readTimeout: 30 minutes (to be safe)
+# - Required maxRequestBodyBytes: 2GB+ (to handle image + overhead)
+
