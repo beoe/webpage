@@ -7,9 +7,13 @@ theme = "hugo-coder"
   author = "Bernd Öggl, Michael Kofler"
   info = "Ein Buch über Docker für DevOps"
   description = "Beispiele, Cloud und viel mehr"
-  avatarurl = "images/dc_s.png"
+  avatarurl = "/images/docker3.jpg"
   hideCredits = true
   hideCopyright = false
+  faviconSVG = ""
+  favicon_32 = ""
+  favicon_16 = ""
+  manifest = ""
 
 [[params.social]]
     name = "Github"
@@ -28,7 +32,7 @@ theme = "hugo-coder"
 [[params.social]]
     name = "🐘 bö"
     weight = 3
-    url = "https://webmapping.social/@bernd"
+    url = "https://mastodon.social/@Berndo"
     rel = "me"
 [[params.social]]
     name = "🐘 mk"
