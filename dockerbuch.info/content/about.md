@@ -8,7 +8,7 @@ draft: false
 ## Docker (3. Auflage)
 ### Das Praxisbuch für Entwickler und DevOps-Teams
 
-von [Bernd Öggl](https://webman.at), [Michael Kofler](https://kofler.info).
+von [Bernd Öggl](https://webman.at/cms/), [Michael Kofler](https://kofler.info).
 
 496 Seiten, 3. Auflage 2021, gebunden
 Rheinwerk Computing, ISBN 78-3-8362-8634-3

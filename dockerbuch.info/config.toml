@@ -37,7 +37,7 @@ theme = "hugo-coder"
 [[params.social]]
     name = "🐘 mk"
     weight = 3
-    url = "https://home.social/@michaelkofler"
+    url = "https://mastodon.social/@michaelkofler"
 
 # [[menu.main]]
 #   name = "Blog"
