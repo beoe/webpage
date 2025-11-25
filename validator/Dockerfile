@@ -4,9 +4,7 @@ ENV VALIDATOR_VERSION=latest
 
 WORKDIR /src
 
-ADD "https://github.com/validator/validator/releases/download/$VALIDATOR_VERSION/vnu.jar_$VALIDATOR_VERSION.zip" /src/vnu.jar.zip
-RUN unzip /src/vnu.jar.zip \
-  && rm /src/vnu.jar.zip
+ADD "https://github.com/validator/validator/releases/download/$VALIDATOR_VERSION/vnu.jar" /src/vnu.jar
 
 EXPOSE 8888
 RUN adduser -S validator
