@@ -20,22 +20,6 @@ stages:
 
 before_script:
   - docker login -u gitlab-ci-token -p $CI_JOB_TOKEN $REGISTRY
-  # - |
-  #   # Configure Docker for large image pushes
-  #   # Increase timeout and buffer sizes for registry operations
-  #   mkdir -p ~/.docker
-  #   cat > ~/.docker/config.json <<EOF
-  #   {
-  #     "max-concurrent-downloads": 3,
-  #     "max-concurrent-uploads": 3
-  #   }
-  #   EOF
-  # - |
-    # Check available disk space before building
-    echo "Available disk space:"
-    df -h
-    echo "Docker disk usage:"
-    docker system df || true
 
 build:
   stage: build
