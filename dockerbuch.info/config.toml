@@ -1,7 +1,7 @@
 baseURL = "/"
 languageCode = "de"
 title = "Docker"
-theme = "coder"
+theme = "hugo-coder"
 
 [params]
   author = "Bernd Öggl, Michael Kofler"
