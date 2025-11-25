@@ -1,7 +1,7 @@
 variables:
   REGISTRY: registry.dockerbuch.info
   TEST_IMAGE: $REGISTRY/dockerbuch/webpage:$CI_COMMIT_REF_NAME
-  TEST_NETWORK: testnet
+  TEST_NETWORK: testnetwork
   RELEASE_IMAGE: $REGISTRY/dockerbuch/webpage:latest
   TEST_CONTAINER_NAME: dockerbuch
   LINK_CHECKER: $REGISTRY/dockerbuch/webpage/linkchecker
