@@ -28,7 +28,7 @@ theme = "hugo-coder"
 [[params.social]]
     name = "Rheinwerk"
     weight = 2
-    url = "https://www.rheinwerk-verlag.de/docker_4599/"
+    url = "https://www.rheinwerk-verlag.de/docker-das-praxisbuch-fuer-entwickler-und-devops-teams/?v=4599"
 [[params.social]]
     name = "🐘 bö"
     weight = 3
