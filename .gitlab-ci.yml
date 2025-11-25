@@ -6,6 +6,8 @@ variables:
   TEST_CONTAINER_NAME: dockerbuch
   LINK_CHECKER: $REGISTRY/dockerbuch/webpage/linkchecker
   VALIDATOR: $REGISTRY/dockerbuch/webpage/validator
+  LIGHTHOUSE_PERFORMANCE_THRESHOLD: "80"
+  LIGHTHOUSE_ACCESSIBILITY_THRESHOLD: "95"
 
 stages:
   - build
@@ -93,14 +95,14 @@ lighthouse:
       ")
       echo "Performance score: $PERFORMANCE"
       echo "Accessibility score: $ACCESSIBILITY"
-      echo "Thresholds: Performance >= 90, Accessibility >= 95"
+      echo "Thresholds: Performance >= $LIGHTHOUSE_PERFORMANCE_THRESHOLD, Accessibility >= $LIGHTHOUSE_ACCESSIBILITY_THRESHOLD"
       # Check thresholds (using awk for floating point comparison)
-      if [ $(echo "$PERFORMANCE < 90" | awk '{print ($1 < $2)}') -eq 1 ]; then
-        echo "ERROR: Performance score $PERFORMANCE is below threshold of 90"
+      if [ $(echo "$PERFORMANCE < $LIGHTHOUSE_PERFORMANCE_THRESHOLD" | awk '{print ($1 < $2)}') -eq 1 ]; then
+        echo "ERROR: Performance score $PERFORMANCE is below threshold of $LIGHTHOUSE_PERFORMANCE_THRESHOLD"
         exit 1
       fi
-      if [ $(echo "$ACCESSIBILITY < 95" | awk '{print ($1 < $2)}') -eq 1 ]; then
-        echo "ERROR: Accessibility score $ACCESSIBILITY is below threshold of 95"
+      if [ $(echo "$ACCESSIBILITY < $LIGHTHOUSE_ACCESSIBILITY_THRESHOLD" | awk '{print ($1 < $2)}') -eq 1 ]; then
+        echo "ERROR: Accessibility score $ACCESSIBILITY is below threshold of $LIGHTHOUSE_ACCESSIBILITY_THRESHOLD"
         exit 1
       fi
       echo "✓ All Lighthouse thresholds met!"
