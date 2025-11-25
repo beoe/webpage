@@ -20,22 +20,98 @@ stages:
 
 before_script:
   - docker login -u gitlab-ci-token -p $CI_JOB_TOKEN $REGISTRY
+  - |
+    # Configure Docker for large image pushes
+    # Increase timeout and buffer sizes for registry operations
+    mkdir -p ~/.docker
+    cat > ~/.docker/config.json <<EOF
+    {
+      "max-concurrent-downloads": 3,
+      "max-concurrent-uploads": 3
+    }
+    EOF
+  - |
+    # Check available disk space before building
+    echo "Available disk space:"
+    df -h
+    echo "Docker disk usage:"
+    docker system df || true
 
 build:
   stage: build
   tags:
     - shellRunner
+  timeout: 2h
   script:
     - pwd
     - ls -l ./ /
     - docker build -t $TEST_IMAGE .
-    - docker push $TEST_IMAGE
+    - docker push $TEST_IMAGE || (echo "Failed to push $TEST_IMAGE, retrying..." && sleep 5 && docker push $TEST_IMAGE)
     - docker build -t $LINK_CHECKER linkchecker/
-    - docker push $LINK_CHECKER
+    - docker push $LINK_CHECKER || (echo "Failed to push $LINK_CHECKER, retrying..." && sleep 5 && docker push $LINK_CHECKER)
     - docker build -t $VALIDATOR validator/
-    - docker push $VALIDATOR
+    - docker push $VALIDATOR || (echo "Failed to push $VALIDATOR, retrying..." && sleep 5 && docker push $VALIDATOR)
     - docker build -t $LIGHTHOUSE lighthouse/
-    - docker push $LIGHTHOUSE
+    - |
+      # Show image size before pushing
+      echo "Lighthouse image details:"
+      docker images $LIGHTHOUSE --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}"
+      IMAGE_SIZE=$(docker images $LIGHTHOUSE --format "{{.Size}}")
+      echo "Image size: $IMAGE_SIZE"
+    - |
+      # Push lighthouse image with retry logic for large image
+      echo "Pushing lighthouse image (this may take several minutes for large images)..."
+      echo "Registry: $REGISTRY"
+      echo "Testing registry connectivity..."
+      curl -I "https://${REGISTRY}/v2/" 2>&1 | head -5 || echo "Warning: Could not reach registry API"
+      MAX_RETRIES=3
+      RETRY_COUNT=0
+      while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+        echo "Push attempt $((RETRY_COUNT + 1))/$MAX_RETRIES"
+        START_TIME=$(date +%s)
+        if docker push $LIGHTHOUSE 2>&1 | tee /tmp/push.log; then
+          END_TIME=$(date +%s)
+          DURATION=$((END_TIME - START_TIME))
+          echo "✓ Successfully pushed lighthouse image in ${DURATION}s"
+          break
+        else
+          RETRY_COUNT=$((RETRY_COUNT + 1))
+          # Check for specific error patterns
+          if grep -q "413\|Request Entity Too Large\|client_max_body_size" /tmp/push.log 2>/dev/null; then
+            echo "✗ ERROR: 413 Request Entity Too Large detected!"
+            echo "This indicates a proxy (Traefik/nginx) body size limit."
+            echo "Check Traefik configuration for 'clientMaxBodySize' or 'maxRequestBodyBytes'"
+          elif grep -q "504\|Gateway Timeout\|timeout" /tmp/push.log 2>/dev/null; then
+            echo "✗ ERROR: Timeout detected!"
+            echo "Upload may be taking too long. Check proxy timeout settings."
+          elif grep -q "connection reset\|broken pipe" /tmp/push.log 2>/dev/null; then
+            echo "✗ ERROR: Connection reset detected!"
+            echo "Network or proxy buffer issue. Check Traefik buffer settings."
+          fi
+          if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+            WAIT_TIME=$((RETRY_COUNT * 10))
+            echo "⚠ Push failed, retrying in ${WAIT_TIME}s..."
+            echo "Last error output:"
+            tail -30 /tmp/push.log || true
+            sleep $WAIT_TIME
+            # Re-authenticate in case token expired
+            docker login -u gitlab-ci-token -p $CI_JOB_TOKEN $REGISTRY
+          else
+            echo "✗ ERROR: Failed to push lighthouse image after $MAX_RETRIES attempts"
+            echo "Image details:"
+            docker images | grep lighthouse || true
+            echo "Full error output:"
+            cat /tmp/push.log || true
+            echo ""
+            echo "Troubleshooting tips:"
+            echo "1. Check Traefik 'clientMaxBodySize' setting (should be >= 2GB)"
+            echo "2. Check GitLab registry 'max_upload_size' setting"
+            echo "3. Check Traefik timeout settings for long uploads"
+            echo "4. Review registry logs: sudo gitlab-ctl tail registry"
+            exit 1
+          fi
+        fi
+      done
 
 setupTest:
   stage: setupTest
