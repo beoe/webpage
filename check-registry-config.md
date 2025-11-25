@@ -175,6 +175,33 @@ http:
         memRequestBodyBytes: 10485760  # 10MB buffer
 ```
 
+### Issue: "context canceled" error in Traefik logs
+**Error**: `vulcand/oxy/buffer: error when reading request body, err: context canceled`
+**Cause**: Request timeout - Traefik or client is canceling the request before upload completes
+**Solution**: Increase Traefik entrypoint timeouts:
+```yaml
+# In traefik.yml (static config)
+entryPoints:
+  websecure:
+    address: ":443"
+    transport:
+      respondingTimeouts:
+        readTimeout: 30m      # Critical: Allow 30+ minutes for large uploads
+        writeTimeout: 30m     # Allow time for responses
+        idleTimeout: 5m       # Keep connection alive during slow uploads
+```
+
+**Also check Docker client timeout** (in CI or Docker daemon config):
+```bash
+# In CI, set Docker client timeout
+export DOCKER_CLIENT_TIMEOUT=1800  # 30 minutes
+# or in docker daemon.json
+{
+  "max-concurrent-uploads": 5,
+  "max-concurrent-downloads": 5
+}
+```
+
 ## 6. Quick Diagnostic Commands
 
 ### Test registry with curl:
@@ -223,16 +250,32 @@ services:
       - "traefik.http.routers.registry.entrypoints=websecure"
       - "traefik.http.routers.registry.tls.certresolver=letsencrypt"
       
-      # Middleware for large uploads
-      - "traefik.http.middlewares.registry-body.buffering.maxRequestBodyBytes=2147483648"
-      - "traefik.http.middlewares.registry-body.buffering.maxResponseBodyBytes=2147483648"
-      - "traefik.http.middlewares.registry-body.buffering.memRequestBodyBytes=10485760"
+      # Middleware for large uploads with increased timeouts
+      - "traefik.http.middlewares.registry-body.buffering.maxRequestBodyBytes=2147483648"  # 2GB
+      - "traefik.http.middlewares.registry-body.buffering.maxResponseBodyBytes=2147483648"  # 2GB
+      - "traefik.http.middlewares.registry-body.buffering.memRequestBodyBytes=10485760"  # 10MB
+      - "traefik.http.middlewares.registry-body.buffering.retryExpression=IsNetworkError() && Attempts() < 3"
       
       # Apply middleware
       - "traefik.http.routers.registry.middlewares=registry-body"
       
-      # Service configuration
+      # Service configuration with increased timeouts
       - "traefik.http.services.registry.loadbalancer.server.port=5000"
+      - "traefik.http.services.registry.loadbalancer.healthCheck.interval=30s"
+      - "traefik.http.services.registry.loadbalancer.healthCheck.timeout=10s"
+```
+
+**Important**: Also configure Traefik entrypoint timeouts in your Traefik static config:
+```yaml
+# In traefik.yml or static config
+entryPoints:
+  websecure:
+    address: ":443"
+    transport:
+      respondingTimeouts:
+        readTimeout: 30m      # Allow 30 minutes for large uploads
+        writeTimeout: 30m     # Allow 30 minutes for responses
+        idleTimeout: 5m       # Keep connection alive
 ```
 
 ### Option B: Using Dynamic Configuration File

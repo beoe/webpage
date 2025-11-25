@@ -20,6 +20,17 @@ stages:
 
 before_script:
   - docker login -u gitlab-ci-token -p $CI_JOB_TOKEN $REGISTRY
+  - |
+    # Set Docker client timeout for large uploads (30 minutes)
+    # Prevents Docker client from timing out before Traefik finishes processing
+    export DOCKER_CLIENT_TIMEOUT=1800
+    echo "Docker client timeout set to ${DOCKER_CLIENT_TIMEOUT}s (30 minutes)"
+  - |
+    # Check available disk space before building
+    echo "Available disk space:"
+    df -h
+    echo "Docker disk usage:"
+    docker system df || true
 
 build:
   stage: build
@@ -89,9 +100,11 @@ build:
             echo ""
             echo "Troubleshooting tips:"
             echo "1. Check Traefik 'clientMaxBodySize' setting (should be >= 2GB)"
-            echo "2. Check GitLab registry 'max_upload_size' setting"
-            echo "3. Check Traefik timeout settings for long uploads"
-            echo "4. Review registry logs: sudo gitlab-ctl tail registry"
+            echo "2. Check Traefik entrypoint timeouts (readTimeout/writeTimeout should be 30m+)"
+            echo "3. Check for 'context canceled' errors in Traefik logs - indicates timeout issue"
+            echo "4. Check GitLab registry 'max_upload_size' setting"
+            echo "5. Review registry logs: sudo gitlab-ctl tail registry"
+            echo "6. Review Traefik logs: docker logs traefik | grep registry"
             exit 1
           fi
         fi
