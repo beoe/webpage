@@ -159,12 +159,14 @@ lighthouse:
       echo "Performance score: $PERFORMANCE"
       echo "Accessibility score: $ACCESSIBILITY"
       echo "Thresholds: Performance >= $LIGHTHOUSE_PERFORMANCE_THRESHOLD, Accessibility >= $LIGHTHOUSE_ACCESSIBILITY_THRESHOLD"
-      # Check thresholds (using awk for floating point comparison)
-      if [ $(echo "$PERFORMANCE < $LIGHTHOUSE_PERFORMANCE_THRESHOLD" | awk '{print ($1 < $2)}') -eq 1 ]; then
+      # Check thresholds (using bc for reliable floating point comparison)
+      PERF_OK=$(echo "$PERFORMANCE >= $LIGHTHOUSE_PERFORMANCE_THRESHOLD" | bc -l)
+      ACC_OK=$(echo "$ACCESSIBILITY >= $LIGHTHOUSE_ACCESSIBILITY_THRESHOLD" | bc -l)
+      if [ "$PERF_OK" -ne 1 ]; then
         echo "ERROR: Performance score $PERFORMANCE is below threshold of $LIGHTHOUSE_PERFORMANCE_THRESHOLD"
         exit 1
       fi
-      if [ $(echo "$ACCESSIBILITY < $LIGHTHOUSE_ACCESSIBILITY_THRESHOLD" | awk '{print ($1 < $2)}') -eq 1 ]; then
+      if [ "$ACC_OK" -ne 1 ]; then
         echo "ERROR: Accessibility score $ACCESSIBILITY is below threshold of $LIGHTHOUSE_ACCESSIBILITY_THRESHOLD"
         exit 1
       fi
