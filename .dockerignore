@@ -1,0 +1,43 @@
+# Git files
+.git
+.gitignore
+.gitattributes
+
+# Documentation
+README.md
+*.md
+docs/
+
+# CI/CD
+.gitlab-ci.yml
+.github/
+
+# Environment files
+.env
+.env.*
+*.secret
+*.key
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Build artifacts
+public/
+_dbi/
+*.log
+
+# Docker files (except the ones we need)
+compose.override.yaml
+docker-compose*.yml
+
+# Node modules (if any)
+node_modules/
+npm-debug.log
+
+# Temporary files
+*.tmp
+*.temp
+.DS_Store
